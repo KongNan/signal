@@ -69,13 +69,13 @@ export interface NotationMeasureLayout {
 // The staff sits in the MIDDLE third of a three-staff-tall region: one
 // staff height of headroom above and below absorbs ledger notes without
 // any dynamic resizing (the clef choice keeps extreme registers rare).
-export const STAFF_TOP = 38 // 10 + one staff height (28)
+export const STAFF_TOP = 28 // headroom above the staff for ledger notes
 export const STAFF_SPACE = 7
 export const STAFF_FONT_SIZE = STAFF_SPACE * 4
-export const JIANPU_BASELINE = 136 // 64 + 2.5 staff heights (70)
+export const JIANPU_BASELINE = 106 // staff bottom (56) + wide gap
 export const JIANPU_FONT_SIZE = 17
 export const JIANPU_NUMBER_WIDTH = JIANPU_FONT_SIZE * 0.62
-export const STRIP_HEIGHT = 168 // 84 + 28 + 2.5 staff heights (56)
+export const STRIP_HEIGHT = 132
 
 const STAFF_STEP = STAFF_SPACE / 2
 
@@ -745,18 +745,21 @@ export const layoutNotationHeader = (params: {
     }
     tx += STAFF_SPACE * 0.4
   }
+  // time signature: numerator stacked over denominator (standard notation)
   const digitsOf = (n: number) =>
     String(n)
       .split("")
       .map((d) => SMUFL.timeSig0 + Number(d))
+  const digitAdvance = STAFF_SPACE * 1.7
+  const numeratorX = tx
   for (const code of digitsOf(numerator)) {
     staff.glyphs.push({ code, x: tx, y: middleLineY })
-    tx += STAFF_SPACE * 1.7
+    tx += digitAdvance
   }
-  tx += STAFF_SPACE * 0.4
+  tx = numeratorX
   for (const code of digitsOf(denominator)) {
-    staff.glyphs.push({ code, x: tx, y: middleLineY })
-    tx += STAFF_SPACE * 1.7
+    staff.glyphs.push({ code, x: tx, y: middleLineY + STAFF_SPACE * 2 })
+    tx += digitAdvance
   }
 
   const baseline = JIANPU_BASELINE + jianpuShift
