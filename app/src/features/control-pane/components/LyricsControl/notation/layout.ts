@@ -72,10 +72,10 @@ export interface NotationMeasureLayout {
 export const STAFF_TOP = 38 // 10 + one staff height (28)
 export const STAFF_SPACE = 7
 export const STAFF_FONT_SIZE = STAFF_SPACE * 4
-export const JIANPU_BASELINE = 92 // 64 + 28
+export const JIANPU_BASELINE = 136 // 64 + 2.5 staff heights (70)
 export const JIANPU_FONT_SIZE = 17
 export const JIANPU_NUMBER_WIDTH = JIANPU_FONT_SIZE * 0.62
-export const STRIP_HEIGHT = 112 // 84 + 28
+export const STRIP_HEIGHT = 168 // 84 + 28 + 2.5 staff heights (56)
 
 const STAFF_STEP = STAFF_SPACE / 2
 
