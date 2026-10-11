@@ -17,12 +17,10 @@ import {
   JIANPU_FONT_SIZE,
   jianpuKeyLabel,
   layoutNotationMeasure,
-  ledgerExtents,
   measureRangeFor,
   type NotationLanes,
   type NotationMeasureLayout,
   STAFF_FONT_SIZE,
-  STAFF_SPACE,
   STRIP_HEIGHT,
 } from "./layout"
 
@@ -39,7 +37,6 @@ const RENDER_RATIO = 1.12 // re-layout when the zoom drifts past this
 const RELAYOUT_DEBOUNCE_MS = 250
 const MIN_RENDER_PX_PER_BEAT = 20
 const MAX_RENDER_PX_PER_BEAT = 160
-const MAX_LEDGER_LINES = 8 // generous room; the clef choice keeps this rare
 
 export const LaneItems: FC<{
   lanes: NotationLanes
@@ -224,9 +221,10 @@ export const effectiveKeyAt = (
 }
 
 /**
- * Shared notation context: clef (by ledger-line cost), ledger extents, lane
- * shifts and strip height. Used by the strip itself and by the fixed left
- * header cell, which must align with the staff and jianpu lanes.
+ * Shared notation context: clef (by ledger-line cost) and the effective key.
+ * Used by the strip itself and by the fixed left header cell, which must
+ * align with the staff and jianpu lanes. The strip region is FIXED at three
+ * staff heights (staff centered) — no dynamic resizing for registers.
  */
 export const useNotationContext = (viewStartTick: number) => {
   const allNotes = useAllNoteEvents()
@@ -248,26 +246,6 @@ export const useNotationContext = (viewStartTick: number) => {
     )
   }, [sortedNotes])
 
-  const extents = useMemo(() => {
-    if (sortedNotes.length === 0) {
-      return { above: 0, below: 0 }
-    }
-    const raw = ledgerExtents(
-      sortedNotes[0].noteNumber,
-      sortedNotes[sortedNotes.length - 1].noteNumber,
-      clef,
-    )
-    return {
-      above: Math.min(raw.above, MAX_LEDGER_LINES),
-      below: Math.min(raw.below, MAX_LEDGER_LINES),
-    }
-  }, [sortedNotes, clef])
-
-  const yShift = extents.above * STAFF_SPACE
-  const jianpuShift = extents.below * STAFF_SPACE
-  const stripHeight =
-    STRIP_HEIGHT + (extents.above + extents.below) * STAFF_SPACE
-
   const viewKey = useMemo(
     () => effectiveKeyAt(conductorKeyEvents, viewStartTick, keySignature),
     [conductorKeyEvents, viewStartTick, keySignature],
@@ -276,10 +254,9 @@ export const useNotationContext = (viewStartTick: number) => {
   return {
     sortedNotes,
     clef,
-    extents,
-    yShift,
-    jianpuShift,
-    stripHeight,
+    yShift: 0,
+    jianpuShift: 0,
+    stripHeight: STRIP_HEIGHT,
     viewKey,
     keySignature,
     conductorKeyEvents,

@@ -65,14 +65,17 @@ export interface NotationMeasureLayout {
   readonly jianpu: NotationLanes
 }
 
-// vertical metrics (fixed screen px, at yShift 0)
-export const STAFF_TOP = 10
+// vertical metrics (fixed screen px, at yShift 0).
+// The staff sits in the MIDDLE third of a three-staff-tall region: one
+// staff height of headroom above and below absorbs ledger notes without
+// any dynamic resizing (the clef choice keeps extreme registers rare).
+export const STAFF_TOP = 38 // 10 + one staff height (28)
 export const STAFF_SPACE = 7
 export const STAFF_FONT_SIZE = STAFF_SPACE * 4
-export const JIANPU_BASELINE = 64
+export const JIANPU_BASELINE = 92 // 64 + 28
 export const JIANPU_FONT_SIZE = 17
 export const JIANPU_NUMBER_WIDTH = JIANPU_FONT_SIZE * 0.62
-export const STRIP_HEIGHT = 84
+export const STRIP_HEIGHT = 112 // 84 + 28
 
 const STAFF_STEP = STAFF_SPACE / 2
 

@@ -45,7 +45,7 @@ const Header = styled.div`
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.2rem;
   padding-right: 0.4rem;
   text-align: right;

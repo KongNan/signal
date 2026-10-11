@@ -173,8 +173,8 @@ describe("layoutNotationMeasure", () => {
       ...base,
       notes: [{ tick: 0, duration: 480, noteNumber: 48 }], // C3 in treble
     })
-    // C3 is 4 diatonic steps below the bottom line -> 2 ledger lines
-    const staffBottom = 10 + 4 * 7
+    // C3 is 4 diatonic steps below the bottom line -> 4 ledger lines
+    const staffBottom = 38 + 4 * 7
     const ledgerLines = layout.staff.lines.filter(
       (l) => l.y1 === l.y2 && l.y1 > staffBottom,
     )
