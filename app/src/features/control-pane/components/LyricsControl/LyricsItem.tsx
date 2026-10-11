@@ -1,5 +1,5 @@
 import styled from "@emotion/styled"
-import { type FC, memo } from "react"
+import { type FC, memo, useEffect, useState } from "react"
 
 interface LyricsItemDisplayProps {
   x: number
@@ -39,12 +39,26 @@ const LyricsItem: FC<LyricsItemProps & LyricsItemDisplayProps> = ({
   onChange,
   ...displayProps
 }) => {
+  // Event ids restart for each track, so React reuses this input when
+  // another MIDI file is opened. Keep the text in local state and follow
+  // external changes (file open, undo) instead of relying on defaultValue.
+  const [value, setValue] = useState(lyrics)
+
+  useEffect(() => {
+    setValue(lyrics)
+  }, [lyrics])
+
   return (
     <Parent {...displayProps}>
       <LyricsInput
         style={{ width: displayProps.width }}
-        onBlur={(e) => onChange(e.target.value)}
-        defaultValue={lyrics}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          if (value !== lyrics) {
+            onChange(value)
+          }
+        }}
       />
     </Parent>
   )
