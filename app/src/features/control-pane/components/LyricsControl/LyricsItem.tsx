@@ -29,9 +29,11 @@ const LyricsInput = styled.input`
   border-bottom: 1px solid var(--color-divider);
   color: var(--color-text);
   outline: none;
-  padding: 0 0.25rem;
+  /* left-aligned with no left padding: the character must sit exactly on the
+     note start, or the playhead appears to reach the lyric late */
+  padding: 0 0.25rem 0 0;
   font-size: inherit;
-  text-align: center;
+  text-align: left;
 `
 
 const LyricsItem: FC<LyricsItemProps & LyricsItemDisplayProps> = ({
