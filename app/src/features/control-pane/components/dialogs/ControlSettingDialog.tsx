@@ -28,6 +28,9 @@ const nonControllerControlModes: ControlMode[] = [
     type: "velocity",
   },
   {
+    type: "lyrics",
+  },
+  {
     type: "pitchBend",
   },
 ]

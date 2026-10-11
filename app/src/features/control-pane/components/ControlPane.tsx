@@ -9,6 +9,7 @@ import { useControlPaneKeyboardShortcut } from "../hooks/useControlPaneKeyboardS
 import { ControlLayout } from "./ControlLayout"
 import { ControlEventValueDialog } from "./dialogs/ControlEventValueDialog"
 import { ValueEventGraph } from "./Graph/ValueEventGraph"
+import LyricsControl from "./LyricsControl/LyricsControl"
 import { PencilModeSelector } from "./PencilModeSelector"
 import PianoVelocityControl from "./VelocityControl/VelocityControl"
 
@@ -24,6 +25,15 @@ const VelocityGraph: FC<ControlPaneProps> = ({ axisWidth }) => {
         content={(props) => <PianoVelocityControl {...props} />}
       />
     </VelocityEditorProvider>
+  )
+}
+
+const LyricsGraph: FC<ControlPaneProps> = ({ axisWidth }) => {
+  return (
+    <ControlLayout
+      axisWidth={axisWidth}
+      content={(props) => <LyricsControl {...props} />}
+    />
   )
 }
 
@@ -55,6 +65,8 @@ const ControlPaneWrapper: FC<ControlPaneProps> = (props) => {
   switch (mode.type) {
     case "velocity":
       return <VelocityGraph {...props} />
+    case "lyrics":
+      return <LyricsGraph {...props} />
     default:
       return (
         <ControlEditorProvider type={mode}>

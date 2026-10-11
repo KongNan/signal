@@ -1,4 +1,5 @@
 import {
+  isLyricsEvent,
   isNoteEvent,
   type TrackEventStore,
   type NoteEvent as TrackNoteEvent,
@@ -24,6 +25,9 @@ export class TrackNoteMapper
 
   getAllNotes = () => this.track.getEvents().filter(isNoteEvent)
 
+  getLyricsEventAtTick = (tick: number) =>
+    this.track.getEvents().find((e) => isLyricsEvent(e) && e.tick === tick)
+
   // mutation
 
   addNote = (note: Omit<NoteEvent, "id">) =>
@@ -37,4 +41,22 @@ export class TrackNoteMapper
 
   updateNote = (update: Partial<NoteEvent> & { id: number }) =>
     this.track.updateEvent(update.id, update) as NoteEvent
+
+  // lyrics (kept paired with the note at the same tick)
+
+  moveLyricsTick = (fromTick: number, toTick: number) => {
+    const lyrics = this.getLyricsEventAtTick(fromTick)
+    if (lyrics === undefined) {
+      return
+    }
+    this.track.updateEvent(lyrics.id, { tick: toTick })
+  }
+
+  removeLyricsAtTick = (tick: number) => {
+    const lyrics = this.getLyricsEventAtTick(tick)
+    if (lyrics === undefined) {
+      return
+    }
+    this.track.removeEvent(lyrics.id)
+  }
 }

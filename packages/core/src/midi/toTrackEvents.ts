@@ -9,6 +9,7 @@ import {
 import { mapToSignalEvent } from "../entities/event/signalEvents"
 import type { DistributiveOmit } from "../types"
 import { assemble as assembleNotes } from "./noteAssembler"
+import { decodeMidiText } from "./textEncoding"
 
 export function addTick<T extends DeltaTimeProvider>(
   events: T[],
@@ -40,13 +41,26 @@ const toSignalEvent = (e: TrackEvent): TrackEvent => {
   return e
 }
 
+// Text meta events that carry lyrics have no standardized byte encoding.
+// Re-interpret the bytes read by midifile-ts (UTF-8, falling back to GBK).
+const decodeTextEvent = (e: TrackEvent): TrackEvent => {
+  if (
+    e.type === "meta" &&
+    (e.subtype === "lyrics" || e.subtype === "text") &&
+    typeof e.text === "string"
+  ) {
+    return { ...e, text: decodeMidiText(e.text) }
+  }
+  return e
+}
+
 export function toTrackEvents(events: AnyEvent[]): TrackEvent[] {
   const tickedEvents: (DistributiveOmit<AnyEvent, "deltaTime"> &
     TickProvider)[] = addTick(events.filter(isSupportedEvent))
   const trackEvents = assembleNotes(tickedEvents).map(
     removeUnnecessaryProps,
   ) as unknown as TrackEvent[]
-  return trackEvents.map(toSignalEvent)
+  return trackEvents.map(toSignalEvent).map(decodeTextEvent)
 }
 
 // toTrackEvents without addTick
@@ -56,5 +70,5 @@ export function tickedEventsToTrackEvents(
   const trackEvents = assembleNotes(events.filter(isSupportedEvent)).map(
     removeUnnecessaryProps,
   ) as unknown as TrackEvent[]
-  return trackEvents.map(toSignalEvent)
+  return trackEvents.map(toSignalEvent).map(decodeTextEvent)
 }

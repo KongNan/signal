@@ -1,6 +1,7 @@
 import type {
   ControllerEvent,
   EndOfTrackEvent,
+  LyricsEvent,
   PitchBendEvent,
   ProgramChangeEvent,
   SequencerSpecificEvent,
@@ -32,6 +33,9 @@ export const isEndOfTrackEvent = (
   e: TrackEvent,
 ): e is TrackEventOf<EndOfTrackEvent> =>
   "subtype" in e && e.subtype === "endOfTrack"
+
+export const isLyricsEvent = (e: TrackEvent): e is TrackEventOf<LyricsEvent> =>
+  "subtype" in e && e.subtype === "lyrics"
 
 export const isSetTempoEvent = (
   e: TrackEvent,

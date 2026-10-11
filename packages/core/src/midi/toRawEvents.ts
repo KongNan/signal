@@ -8,6 +8,7 @@ import {
   type TrackEvent,
 } from "../entities"
 import { deassemble as deassembleNote } from "./noteAssembler"
+import { encodeMidiText } from "./textEncoding"
 
 // events in each tracks
 export function addDeltaTime<T extends TickProvider>(
@@ -36,8 +37,23 @@ const fromSignalEvent = (e: TrackEvent): TrackEvent => {
   return e
 }
 
+// Write lyric/text meta events as UTF-8 bytes: midifile-ts serializes one
+// char per byte, which would truncate non-Latin1 characters.
+const encodeTextEvent = (e: TrackEvent): TrackEvent => {
+  if (
+    e.type === "meta" &&
+    (e.subtype === "lyrics" || e.subtype === "text") &&
+    typeof e.text === "string"
+  ) {
+    return { ...e, text: encodeMidiText(e.text) }
+  }
+  return e
+}
+
 export function toRawEvents(events: readonly TrackEvent[]): AnyEvent[] {
-  const a = flatten(events.map(fromSignalEvent).map(deassembleNote))
+  const a = flatten(
+    events.map(fromSignalEvent).map(encodeTextEvent).map(deassembleNote),
+  )
   const c = addDeltaTime(a)
   return c as AnyEvent[]
 }
