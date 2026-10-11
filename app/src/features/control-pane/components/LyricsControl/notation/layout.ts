@@ -1,3 +1,4 @@
+import { Measure } from "@signal-app/core"
 import { GLYPH_METRICS, SMUFL } from "./bravura"
 import {
   jianpuDegreeOf,
@@ -59,8 +60,6 @@ export interface NotationMeasureLayout {
   readonly startTick: number
   readonly durationTicks: number
   readonly pxPerBeat: number
-  /** Extra reference px to the LEFT of the measure (clef/key/time sig). */
-  readonly leadPx: number
   readonly widthPx: number
   readonly staff: NotationLanes
   readonly jianpu: NotationLanes
@@ -304,7 +303,6 @@ interface LaneParams {
   pxPerBeat: number
   notes: readonly NoteLike[]
   keyInfo: KeyInfo
-  isFirst: boolean
   clef: Clef
   yShift: number
   /** extra shift for the jianpu lane (ledger room below the staff) */
@@ -322,7 +320,6 @@ const layoutStaffLane = (lanes: NotationLanes, params: LaneParams) => {
     pxPerBeat,
     notes,
     keyInfo,
-    isFirst,
     clef,
     yShift,
   } = params
@@ -345,38 +342,6 @@ const layoutStaffLane = (lanes: NotationLanes, params: LaneParams) => {
   for (let i = 0; i < 5; i++) {
     const y = staffTopY + i * STAFF_SPACE
     lanes.lines.push({ x1: 0, y1: y, x2: widthPx, y2: y, width: 1 })
-  }
-
-  let lead = 0
-  if (isFirst) {
-    lanes.glyphs.push({ code: cd.glyph, x: 4, y: ctx.stepToY(cd.glyphStep) })
-    lead = 2.6 * STAFF_SPACE
-    if (keyInfo.fifths !== 0) {
-      const steps = keyInfo.fifths > 0 ? cd.sharps : cd.flats
-      const code =
-        keyInfo.fifths > 0 ? SMUFL.accidentalSharp : SMUFL.accidentalFlat
-      const count = Math.min(Math.abs(keyInfo.fifths), 7)
-      for (let i = 0; i < count; i++) {
-        lanes.glyphs.push({ code, x: lead, y: ctx.stepToY(steps[i]) })
-        lead += STAFF_SPACE * 0.9
-      }
-      lead += STAFF_SPACE * 0.4
-    }
-    const digitsOf = (n: number) =>
-      String(n)
-        .split("")
-        .map((d) => SMUFL.timeSig0 + Number(d))
-    let tx = lead
-    for (const code of digitsOf(numerator)) {
-      lanes.glyphs.push({ code, x: tx, y: middleLineY })
-      tx += STAFF_SPACE * 1.7
-    }
-    tx += STAFF_SPACE * 0.4
-    for (const code of digitsOf(denominator)) {
-      lanes.glyphs.push({ code, x: tx, y: middleLineY })
-      tx += STAFF_SPACE * 1.7
-    }
-    lead = tx + STAFF_SPACE * 0.6
   }
 
   const measureAlters = new Map<number, number>()
@@ -422,7 +387,7 @@ const layoutStaffLane = (lanes: NotationLanes, params: LaneParams) => {
     y2: bottomLineY,
     width: 1,
   })
-  return { widthPx, lead }
+  return { widthPx }
 }
 
 // --------------------------------------------------------------- jianpu lane
@@ -689,7 +654,6 @@ export const layoutNotationMeasure = (params: {
   key: number
   scale: string | null
   pxPerBeat: number
-  isFirst: boolean
   /** clef of the staff (default treble) */
   clef?: Clef
   /** vertical shift in px (ledger room above the staff) */
@@ -719,9 +683,128 @@ export const layoutNotationMeasure = (params: {
     startTick: params.measureStart,
     durationTicks: tpb * params.numerator,
     pxPerBeat: params.pxPerBeat,
-    leadPx: params.isFirst ? staffResult.lead : 0,
     widthPx: staffResult.widthPx,
     staff,
     jianpu,
   }
+}
+
+// ------------------------------------------------------- system-start header
+
+/**
+ * The fixed left cell of the strip: short staff lines, clef, key signature
+ * and time signature on the staff lane, the jianpu key label ("1=A") on the
+ * jianpu lane. Drawing them here (instead of inside the first measure)
+ * keeps them visible at every scroll position and never collides with notes.
+ */
+export const layoutNotationHeader = (params: {
+  keyInfo: KeyInfo
+  clef: Clef
+  yShift: number
+  jianpuShift: number
+  widthPx: number
+  numerator: number
+  denominator: number
+}): { staff: NotationLanes; jianpu: NotationLanes } => {
+  const {
+    keyInfo,
+    clef,
+    yShift,
+    jianpuShift,
+    widthPx,
+    numerator,
+    denominator,
+  } = params
+  const staff: NotationLanes = { glyphs: [], texts: [], lines: [], dots: [] }
+  const jianpu: NotationLanes = { glyphs: [], texts: [], lines: [], dots: [] }
+  const cd = CLEF_DATA[clef]
+  const staffTopY = STAFF_TOP + yShift
+  const bottomLineY = staffTopY + STAFF_SPACE * 4
+  const middleLineY = staffTopY + STAFF_SPACE * 2
+  const stepToY = (step: number) =>
+    bottomLineY - (step - cd.bottomStep) * STAFF_STEP
+
+  for (let i = 0; i < 5; i++) {
+    const y = staffTopY + i * STAFF_SPACE
+    staff.lines.push({ x1: 0, y1: y, x2: widthPx, y2: y, width: 1 })
+  }
+
+  staff.glyphs.push({ code: cd.glyph, x: 4, y: stepToY(cd.glyphStep) })
+  let tx = 2.6 * STAFF_SPACE + 4
+  if (keyInfo.fifths !== 0) {
+    const steps = keyInfo.fifths > 0 ? cd.sharps : cd.flats
+    const code =
+      keyInfo.fifths > 0 ? SMUFL.accidentalSharp : SMUFL.accidentalFlat
+    const count = Math.min(Math.abs(keyInfo.fifths), 7)
+    for (let i = 0; i < count; i++) {
+      staff.glyphs.push({ code, x: tx, y: stepToY(steps[i]) })
+      tx += STAFF_SPACE * 0.9
+    }
+    tx += STAFF_SPACE * 0.4
+  }
+  const digitsOf = (n: number) =>
+    String(n)
+      .split("")
+      .map((d) => SMUFL.timeSig0 + Number(d))
+  for (const code of digitsOf(numerator)) {
+    staff.glyphs.push({ code, x: tx, y: middleLineY })
+    tx += STAFF_SPACE * 1.7
+  }
+  tx += STAFF_SPACE * 0.4
+  for (const code of digitsOf(denominator)) {
+    staff.glyphs.push({ code, x: tx, y: middleLineY })
+    tx += STAFF_SPACE * 1.7
+  }
+
+  const baseline = JIANPU_BASELINE + jianpuShift
+  jianpu.texts.push({
+    text: jianpuKeyLabel(keyInfo),
+    x: 2,
+    y: baseline,
+    anchor: "start",
+  })
+
+  return { staff, jianpu }
+}
+
+/**
+ * The measures to render for a visible tick range, snapped to real measure
+ * boundaries (one lead-in measure before the range): chunk bar lines must
+ * coincide with the piano roll's measure grid, so a chunk never starts
+ * mid-measure.
+ */
+export const measureRangeFor = (params: {
+  measures: readonly Measure[]
+  timebase: number
+  viewStartTick: number
+  viewEndTick: number
+}): { startTick: number; numerator: number; denominator: number }[] => {
+  const { measures, timebase, viewStartTick, viewEndTick } = params
+  const result: {
+    startTick: number
+    numerator: number
+    denominator: number
+  }[] = []
+  if (measures.length === 0) {
+    return result
+  }
+  const leadTicks = timebase * 2 // one 4/4 measure back, refined below
+  const anchor = Math.max(0, viewStartTick - leadTicks)
+  const snapped = Measure.getMeasureStart(measures, anchor, timebase)
+  const denominatorOf = (ticksPerBeat: number) =>
+    Math.round((timebase * 4) / ticksPerBeat)
+  let startTick = snapped.tick
+  const endTick = viewEndTick + snapped.duration * 2
+  let guard = 0
+  while (startTick < endTick && guard < 200) {
+    const current = Measure.getMeasureStart(measures, startTick, timebase)
+    result.push({
+      startTick,
+      numerator: current.numerator,
+      denominator: denominatorOf(current.ticksPerBeat),
+    })
+    startTick += current.duration
+    guard += 1
+  }
+  return result
 }

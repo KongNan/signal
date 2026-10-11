@@ -156,15 +156,10 @@ describe("layoutNotationMeasure", () => {
     expect(layout.staff.glyphs.length).toBeGreaterThanOrEqual(2)
   })
 
-  it("draws the clef, key signature and time signature on the first measure", () => {
-    const layout = layoutNotationMeasure({
-      ...base,
-      isFirst: true,
-      notes: [],
-    })
-    const clef = layout.staff.glyphs[0]
-    expect(clef.code).toBe(0xe050)
-    expect(layout.leadPx).toBeGreaterThan(0)
+  it("draws measure chunks without the clef (it lives in the header cell)", () => {
+    const layout = layoutNotationMeasure({ ...base, notes: [] })
+    // an empty measure holds a whole rest, but no clef/key/time glyphs
+    expect(layout.staff.glyphs.filter((g) => g.code === 0xe050).length).toBe(0)
   })
 
   it("aligns the barline with the measure width", () => {

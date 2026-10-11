@@ -10,12 +10,15 @@ import { useAllNoteEvents } from "../../../../piano-roll/hooks/useEventView"
 import { usePianoRoll } from "../../../../piano-roll/hooks/usePianoRoll"
 import { ensureBravuraFont } from "./bravura"
 import { keyInfoOf } from "./keys"
+export { keyInfoOf }
+
 import {
   chooseClef,
   JIANPU_FONT_SIZE,
   jianpuKeyLabel,
   layoutNotationMeasure,
   ledgerExtents,
+  measureRangeFor,
   type NotationLanes,
   type NotationMeasureLayout,
   STAFF_FONT_SIZE,
@@ -24,29 +27,21 @@ import {
 } from "./layout"
 
 // A horizontally scrolling notation strip (staff + jianpu) synced to the
-// piano roll viewport. Measure chunks are laid out in tick space so bar
-// lines sit exactly on the piano roll's measure grid. Chunks are rendered
-// at a stable horizontal scale and stretched via CSS while the user zooms;
-// a debounced re-layout brings note spacing back in line. Glyph sizes are
-// fixed screen pixels at every zoom level.
-//
-// Notes come from the WHOLE track (not the windowed view): measures at the
-// edges of the visible range must lay out completely, or phantom rests
-// would appear and shift while scrolling. Measures beyond the end of the
-// song are not rendered — an empty region stays empty, like the piano roll.
+// piano roll viewport. Measure chunks are laid out in tick space and snapped
+// to real measure boundaries, so bar lines sit exactly on the piano roll's
+// measure grid. Chunks are rendered at a stable horizontal scale and
+// stretched via CSS while the user zooms; a debounced re-layout brings note
+// spacing back in line. Glyph sizes are fixed screen pixels at every zoom.
+// Clef / key signature / time signature live in the strip's fixed left
+// header cell (see layoutNotationHeader), not inside the first measure.
 
 const RENDER_RATIO = 1.12 // re-layout when the zoom drifts past this
 const RELAYOUT_DEBOUNCE_MS = 250
 const MIN_RENDER_PX_PER_BEAT = 20
 const MAX_RENDER_PX_PER_BEAT = 160
+const MAX_LEDGER_LINES = 8 // generous room; the clef choice keeps this rare
 
-interface VisibleMeasure {
-  readonly startTick: number
-  readonly numerator: number
-  readonly denominator: number
-}
-
-const LaneItems: FC<{
+export const LaneItems: FC<{
   lanes: NotationLanes
   glyphFontSize: number
   textFontSize: number
@@ -102,7 +97,7 @@ const LaneItems: FC<{
 
 interface MeasureChunkProps {
   layout: NotationMeasureLayout
-  /** screen-space x of the measure's musical start (barline-aligned) */
+  /** screen-space x of the measure start (barline-aligned) */
   left: number
   scaleX: number
   height: number
@@ -114,21 +109,20 @@ const MeasureChunk: FC<MeasureChunkProps> = ({
   scaleX,
   height,
 }) => {
-  const totalWidth = layout.leadPx + layout.widthPx
   return (
     <div
       style={{
         position: "absolute",
         top: 0,
-        left: left - layout.leadPx * scaleX,
-        width: totalWidth * scaleX,
+        left,
+        width: layout.widthPx * scaleX,
         height: "100%",
         overflow: "visible",
         pointerEvents: "none",
       }}
     >
       <svg
-        width={totalWidth}
+        width={layout.widthPx}
         height={height}
         style={{
           transform: `scaleX(${scaleX})`,
@@ -136,18 +130,16 @@ const MeasureChunk: FC<MeasureChunkProps> = ({
           display: "block",
         }}
       >
-        <g transform={`translate(${layout.leadPx} 0)`}>
-          <LaneItems
-            lanes={layout.staff}
-            glyphFontSize={STAFF_FONT_SIZE}
-            textFontSize={JIANPU_FONT_SIZE}
-          />
-          <LaneItems
-            lanes={layout.jianpu}
-            glyphFontSize={STAFF_FONT_SIZE}
-            textFontSize={JIANPU_FONT_SIZE}
-          />
-        </g>
+        <LaneItems
+          lanes={layout.staff}
+          glyphFontSize={STAFF_FONT_SIZE}
+          textFontSize={JIANPU_FONT_SIZE}
+        />
+        <LaneItems
+          lanes={layout.jianpu}
+          glyphFontSize={STAFF_FONT_SIZE}
+          textFontSize={JIANPU_FONT_SIZE}
+        />
       </svg>
     </div>
   )
@@ -160,8 +152,6 @@ export interface NotationStripProps {
   transform: { getX(tick: number): number }
   /** piano roll scroll position in px */
   scrollLeft: number
-  /** reports the strip height so the parent can place lyrics below it */
-  onHeightChange?: (height: number) => void
 }
 
 const clampPxPerBeat = (v: number) =>
@@ -233,45 +223,21 @@ export const effectiveKeyAt = (
   return KeySignatureEntity.fromMidiValues(event.sf, event.mi)
 }
 
-export const NotationStrip: FC<NotationStripProps> = ({
-  tickRange,
-  transform,
-  scrollLeft,
-  onHeightChange,
-}) => {
-  const { measures, timebase } = useSong()
+/**
+ * Shared notation context: clef (by ledger-line cost), ledger extents, lane
+ * shifts and strip height. Used by the strip itself and by the fixed left
+ * header cell, which must align with the staff and jianpu lanes.
+ */
+export const useNotationContext = (viewStartTick: number) => {
   const allNotes = useAllNoteEvents()
   const { keySignature } = usePianoRoll()
   const conductorKeyEvents = useConductorKeyEvents()
-  const pxPerTick = transform.getX(timebase) / timebase
 
-  const [fontReady, setFontReady] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    ensureBravuraFont().then(() => {
-      if (!cancelled) {
-        setFontReady(true)
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // notes sorted by tick, so each measure can slice its notes in O(log n)
   const sortedNotes = useMemo(
     () => [...allNotes].sort((a, b) => a.tick - b.tick),
     [allNotes],
   )
 
-  // the notation content ends with the last note — NOT song.endOfSong,
-  // which carries a large composing margin past the written music
-  const noteEnd = useMemo(() => {
-    const last = sortedNotes[sortedNotes.length - 1]
-    return last !== undefined ? last.tick + last.duration : 0
-  }, [sortedNotes])
-
-  // clef from the whole-track register; the strip grows for ledger lines
   const clef = useMemo(() => {
     if (sortedNotes.length === 0) {
       return "treble" as const
@@ -291,9 +257,6 @@ export const NotationStrip: FC<NotationStripProps> = ({
       sortedNotes[sortedNotes.length - 1].noteNumber,
       clef,
     )
-    // extreme registers stop growing and clip (the clef choice keeps this
-    // rare); a cap also bounds the strip height for the lyrics row
-    const MAX_LEDGER_LINES = 4
     return {
       above: Math.min(raw.above, MAX_LEDGER_LINES),
       below: Math.min(raw.below, MAX_LEDGER_LINES),
@@ -301,12 +264,58 @@ export const NotationStrip: FC<NotationStripProps> = ({
   }, [sortedNotes, clef])
 
   const yShift = extents.above * STAFF_SPACE
+  const jianpuShift = extents.below * STAFF_SPACE
   const stripHeight =
     STRIP_HEIGHT + (extents.above + extents.below) * STAFF_SPACE
 
+  const viewKey = useMemo(
+    () => effectiveKeyAt(conductorKeyEvents, viewStartTick, keySignature),
+    [conductorKeyEvents, viewStartTick, keySignature],
+  )
+
+  return {
+    sortedNotes,
+    clef,
+    extents,
+    yShift,
+    jianpuShift,
+    stripHeight,
+    viewKey,
+    keySignature,
+    conductorKeyEvents,
+  }
+}
+
+export const NotationStrip: FC<NotationStripProps> = ({
+  tickRange,
+  transform,
+  scrollLeft,
+}) => {
+  const { measures, timebase } = useSong()
+  const context = useNotationContext(tickRange[0])
+  const {
+    sortedNotes,
+    clef,
+    yShift,
+    jianpuShift,
+    stripHeight,
+    keySignature,
+    conductorKeyEvents,
+  } = context
+  const pxPerTick = transform.getX(timebase) / timebase
+
+  const [fontReady, setFontReady] = useState(false)
   useEffect(() => {
-    onHeightChange?.(stripHeight)
-  }, [stripHeight, onHeightChange])
+    let cancelled = false
+    ensureBravuraFont().then(() => {
+      if (!cancelled) {
+        setFontReady(true)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // the beat unit (ticks per beat) of the first visible measure — used for
   // the stable render scale and the pxPerBeat <-> pxPerTick conversion
@@ -349,49 +358,20 @@ export const NotationStrip: FC<NotationStripProps> = ({
 
   const renderedPxPerTick = renderedPxPerBeat / firstTpb
 
-  // expand measure boundaries around the visible range
-  const visibleMeasures = useMemo(() => {
-    const result: VisibleMeasure[] = []
-    if (measures.length === 0) {
-      return result
-    }
-    let ts = measures[0]
-    for (const m of measures) {
-      if (m.tick <= tickRange[0]) {
-        ts = m
-      } else {
-        break
-      }
-    }
-    const leadTpb = (timebase * 4) / ts.denominator
-    const leadDur = leadTpb * ts.numerator
-    // start one measure before the visible range for lead-in
-    let startTick = Math.max(0, tickRange[0] - leadDur)
-    const endTick = tickRange[1] + leadDur * 2
-    let guard = 0
-    while (startTick < endTick && guard < 100) {
-      let current = measures[0]
-      for (const m of measures) {
-        if (m.tick <= startTick) {
-          current = m
-        } else {
-          break
-        }
-      }
-      const tpb = (timebase * 4) / current.denominator
-      result.push({
-        startTick,
-        numerator: current.numerator,
-        denominator: current.denominator,
-      })
-      startTick += tpb * current.numerator
-      guard += 1
-    }
-    return result
-  }, [measures, timebase, tickRange[0], tickRange[1]])
+  // measures to render, snapped to real measure boundaries
+  const visibleMeasures = useMemo(
+    () =>
+      measureRangeFor({
+        measures,
+        timebase,
+        viewStartTick: tickRange[0],
+        viewEndTick: tickRange[1],
+      }),
+    [measures, timebase, tickRange[0], tickRange[1]],
+  )
 
   const layouts = useMemo(() => {
-    const jianpuShift = extents.below * STAFF_SPACE
+    const jShift = jianpuShift
     // a note sustained from before the first rendered measure occupies its head
     let carry = 0
     const firstStart = visibleMeasures[0]?.startTick ?? 0
@@ -402,6 +382,11 @@ export const NotationStrip: FC<NotationStripProps> = ({
         carry = Math.max(carry, end)
       }
     }
+    const noteEnd =
+      sortedNotes.length > 0
+        ? sortedNotes[sortedNotes.length - 1].tick +
+          sortedNotes[sortedNotes.length - 1].duration
+        : 0
     return (
       visibleMeasures
         // beyond the last note the strip stays empty, like the piano roll
@@ -426,10 +411,9 @@ export const NotationStrip: FC<NotationStripProps> = ({
             key: effectiveKey.key,
             scale: effectiveKey.scale,
             pxPerBeat: renderedPxPerTick * tpb,
-            isFirst: m.startTick <= 0,
             clef,
             yShift,
-            jianpuShift,
+            jianpuShift: jShift,
             carriedUntil: carry,
           })
           for (const n of slice) {
@@ -449,8 +433,7 @@ export const NotationStrip: FC<NotationStripProps> = ({
     conductorKeyEvents,
     clef,
     yShift,
-    extents,
-    noteEnd,
+    jianpuShift,
   ])
 
   const scaleX = pxPerTick / renderedPxPerTick

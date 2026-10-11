@@ -1,5 +1,6 @@
 import styled from "@emotion/styled"
 import { GLCanvas, Transform } from "@ryohey/webgl-react"
+import { Measure } from "@signal-app/core"
 import { type FC, memo, useCallback, useMemo, useState } from "react"
 import { useSetSongKey } from "../../../../actions/keys"
 import { useLyricsActions } from "../../../../actions/lyrics"
@@ -18,12 +19,12 @@ import {
 import { useNoteCoordTransform } from "../../../piano-roll/hooks/useNoteCoordTransform"
 import { usePianoRoll } from "../../../piano-roll/hooks/usePianoRoll"
 import LyricsItem from "./LyricsItem"
-import { STRIP_HEIGHT } from "./notation/layout"
+import { layoutNotationHeader } from "./notation/layout"
 import {
-  effectiveKeyAt,
+  keyInfoOf,
+  LaneItems,
   NotationStrip,
-  notationHeaderLabel,
-  useConductorKeyEvents,
+  useNotationContext,
 } from "./notation/NotationStrip"
 
 export interface LyricsControlProps {
@@ -71,16 +72,15 @@ const LyricsControl: FC<LyricsControlProps> = ({
   const lyricsEvents = useLyricsEvents()
   const { cursorX, scrollLeft, tickRange } = useTickScroll()
   const beats = useBeats()
-  const { keySignature, setKeySignature } = usePianoRoll()
-  const { measures } = useSong()
-  const conductorKeyEvents = useConductorKeyEvents()
+  const { setKeySignature } = usePianoRoll()
+  const { measures, timebase } = useSong()
   const setSongKey = useSetSongKey()
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
   const { createLyrics, updateLyrics, deleteLyrics } = useLyricsActions()
 
-  // the notation strip reports its height (it grows for ledger lines)
-  const [stripHeight, setStripHeight] = useState(STRIP_HEIGHT)
-  const onStripHeightChange = useCallback((h: number) => setStripHeight(h), [])
+  // shared strip context: clef, ledger extents, effective key, height
+  const notation = useNotationContext(tickRange[0])
+  const stripHeight = notation.stripHeight
 
   const scrollXMatrix = useMemo(
     () => matrixFromTranslation(-scrollLeft, 0),
@@ -141,16 +141,6 @@ const LyricsControl: FC<LyricsControlProps> = ({
     updateLyricsText,
   ])
 
-  const firstTs = measures[0]
-  // the header shows the key in effect at the current view; click to edit
-  const viewKey = effectiveKeyAt(conductorKeyEvents, tickRange[0], keySignature)
-  const headerLabel = notationHeaderLabel(
-    viewKey.key,
-    viewKey.scale,
-    firstTs?.numerator,
-    firstTs?.denominator,
-  )
-  const [keyLabel, meterLabel] = headerLabel.split(" ")
   const handleKeyChange = useCallback(
     (ks: KeySignature) => {
       setKeySignature(ks)
@@ -159,6 +149,21 @@ const LyricsControl: FC<LyricsControlProps> = ({
     [setKeySignature, setSongKey],
   )
 
+  // the system-start header: staff lines + clef + key + time signature on
+  // the staff lane, the jianpu key label on the jianpu lane
+  const headerLanes = useMemo(() => {
+    const viewTs = Measure.getMeasureStart(measures, tickRange[0], timebase)
+    return layoutNotationHeader({
+      keyInfo: keyInfoOf(notation.viewKey.key, notation.viewKey.scale),
+      clef: notation.clef,
+      yShift: notation.yShift,
+      jianpuShift: notation.jianpuShift,
+      widthPx: axisWidth,
+      numerator: viewTs.numerator,
+      denominator: Math.round((timebase * 4) / viewTs.ticksPerBeat),
+    })
+  }, [notation, axisWidth, measures, timebase, tickRange[0]])
+
   return (
     <Parent>
       <Header
@@ -166,8 +171,22 @@ const LyricsControl: FC<LyricsControlProps> = ({
         title="Key / Scale"
         onClick={() => setKeyDialogOpen(true)}
       >
-        <div>{keyLabel}</div>
-        <div>{meterLabel}</div>
+        <svg
+          width={axisWidth}
+          height={stripHeight}
+          style={{ display: "block" }}
+        >
+          <LaneItems
+            lanes={headerLanes.staff}
+            glyphFontSize={28}
+            textFontSize={17}
+          />
+          <LaneItems
+            lanes={headerLanes.jianpu}
+            glyphFontSize={28}
+            textFontSize={17}
+          />
+        </svg>
       </Header>
       <Content style={{ width, height }}>
         <GLCanvas width={width} height={height}>
@@ -180,7 +199,6 @@ const LyricsControl: FC<LyricsControlProps> = ({
           tickRange={tickRange}
           transform={transform}
           scrollLeft={scrollLeft}
-          onHeightChange={onStripHeightChange}
         />
         {lyricsItems}
       </Content>
