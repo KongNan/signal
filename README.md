@@ -1,3 +1,8 @@
+【DEMO ONLY】
+**VibeCoding**. This repo only serves as a demo for the "lyrics" feature. Thanks to @poohcom1, @lodebar2026, and @zcode.
+https://github.com/ryohey/signal/issues/180#issuecomment-1158552411
+
+==============================================
 ![logo-github](https://github.com/ryohey/signal/assets/5355966/46834ee4-30d8-4b66-a47c-6e081cc2c09f)
 
 [![Join the chat at https://discord.gg/XQxzNdDJse](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Finvites%2FXQxzNdDJse%3Fwith_counts%3Dtrue&query=%24.approximate_presence_count&suffix=%20online&style=flat&logo=discord&logoColor=white&label=discord&labelColor=%235865F2&color=%23424549)](https://discord.gg/XQxzNdDJse)
