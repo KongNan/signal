@@ -1,13 +1,16 @@
 import styled from "@emotion/styled"
 import { GLCanvas, Transform } from "@ryohey/webgl-react"
 import { type FC, memo, useCallback, useMemo, useState } from "react"
+import { useSetSongKey } from "../../../../actions/keys"
 import { useLyricsActions } from "../../../../actions/lyrics"
 import { Beats } from "../../../../components/GLNodes/Beats"
 import { Cursor } from "../../../../components/GLNodes/Cursor"
+import type { KeySignature } from "../../../../entities/scale/KeySignature"
 import { matrixFromTranslation } from "../../../../helpers/matrix"
 import { useBeats } from "../../../../hooks/useBeats"
 import { useSong } from "../../../../hooks/useSong"
 import { useTickScroll } from "../../../../hooks/useTickScroll"
+import { KeySignatureDialog } from "../../../piano-roll/components/dialogs/KeySignatureDialog"
 import {
   useLyricsEvents,
   useNoteEvents,
@@ -16,7 +19,12 @@ import { useNoteCoordTransform } from "../../../piano-roll/hooks/useNoteCoordTra
 import { usePianoRoll } from "../../../piano-roll/hooks/usePianoRoll"
 import LyricsItem from "./LyricsItem"
 import { STRIP_HEIGHT } from "./notation/layout"
-import { NotationStrip, notationHeaderLabel } from "./notation/NotationStrip"
+import {
+  effectiveKeyAt,
+  NotationStrip,
+  notationHeaderLabel,
+  useConductorKeyEvents,
+} from "./notation/NotationStrip"
 
 export interface LyricsControlProps {
   width: number
@@ -42,6 +50,11 @@ const Header = styled.div`
   text-align: right;
   color: var(--color-text-secondary);
   font-size: 0.8rem;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--color-text);
+  }
 `
 
 const Content = styled.div`
@@ -58,8 +71,11 @@ const LyricsControl: FC<LyricsControlProps> = ({
   const lyricsEvents = useLyricsEvents()
   const { cursorX, scrollLeft, tickRange } = useTickScroll()
   const beats = useBeats()
-  const { keySignature } = usePianoRoll()
+  const { keySignature, setKeySignature } = usePianoRoll()
   const { measures } = useSong()
+  const conductorKeyEvents = useConductorKeyEvents()
+  const setSongKey = useSetSongKey()
+  const [keyDialogOpen, setKeyDialogOpen] = useState(false)
   const { createLyrics, updateLyrics, deleteLyrics } = useLyricsActions()
 
   // the notation strip reports its height (it grows for ledger lines)
@@ -126,17 +142,30 @@ const LyricsControl: FC<LyricsControlProps> = ({
   ])
 
   const firstTs = measures[0]
+  // the header shows the key in effect at the current view; click to edit
+  const viewKey = effectiveKeyAt(conductorKeyEvents, tickRange[0], keySignature)
   const headerLabel = notationHeaderLabel(
-    keySignature?.key ?? 0,
-    keySignature?.scale ?? null,
+    viewKey.key,
+    viewKey.scale,
     firstTs?.numerator,
     firstTs?.denominator,
   )
   const [keyLabel, meterLabel] = headerLabel.split(" ")
+  const handleKeyChange = useCallback(
+    (ks: KeySignature) => {
+      setKeySignature(ks)
+      setSongKey(ks)
+    },
+    [setKeySignature, setSongKey],
+  )
 
   return (
     <Parent>
-      <Header style={{ width: axisWidth, height }}>
+      <Header
+        style={{ width: axisWidth, height }}
+        title="Key / Scale"
+        onClick={() => setKeyDialogOpen(true)}
+      >
         <div>{keyLabel}</div>
         <div>{meterLabel}</div>
       </Header>
@@ -155,6 +184,11 @@ const LyricsControl: FC<LyricsControlProps> = ({
         />
         {lyricsItems}
       </Content>
+      <KeySignatureDialog
+        open={keyDialogOpen}
+        onOpenChange={setKeyDialogOpen}
+        onChange={handleKeyChange}
+      />
     </Parent>
   )
 }

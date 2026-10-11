@@ -33,6 +33,8 @@ export interface NotationText {
   readonly x: number
   readonly y: number
   readonly anchor: "start" | "middle"
+  /** font size override (px) — falls back to the lane default */
+  readonly size?: number
 }
 export interface NotationLine {
   readonly x1: number
@@ -305,6 +307,10 @@ interface LaneParams {
   isFirst: boolean
   clef: Clef
   yShift: number
+  /** extra shift for the jianpu lane (ledger room below the staff) */
+  jianpuShift: number
+  /** a note from a previous measure still sounds until this tick */
+  carriedUntil: number
 }
 
 const layoutStaffLane = (lanes: NotationLanes, params: LaneParams) => {
@@ -375,7 +381,9 @@ const layoutStaffLane = (lanes: NotationLanes, params: LaneParams) => {
 
   const measureAlters = new Map<number, number>()
   const measureEndTick = measureStart + tpb * numerator
-  let prevEndTick = measureStart
+  // a note sustained from the previous measure occupies the measure head:
+  // no rest is drawn where something is still sounding
+  let prevEndTick = Math.max(measureStart, params.carriedUntil)
   for (const chord of groupChords(notes)) {
     const gap = chord.tick - prevEndTick
     if (gap >= tpb * 0.2) {
@@ -424,7 +432,8 @@ const jianpuDurationMarks = (
   lines: NotationLine[],
   beats: number,
   noteTick: number,
-  noteX: number,
+  digitX: number,
+  numberWidth: number,
   chordTpb: number,
   baseline: number,
   xOf: (tick: number) => number,
@@ -436,7 +445,7 @@ const jianpuDurationMarks = (
   for (let k = 1; k < intB; k++) {
     texts.push({
       text: "—",
-      x: xOf(noteTick + k * chordTpb) + JIANPU_NUMBER_WIDTH / 2,
+      x: xOf(noteTick + k * chordTpb) + numberWidth / 2,
       y: baseline,
       anchor: "middle",
     })
@@ -457,9 +466,9 @@ const jianpuDurationMarks = (
   }
   for (let i = 0; i < underlines; i++) {
     lines.push({
-      x1: noteX - 2,
+      x1: digitX - 2,
       y1: underlineY + i * 3,
-      x2: noteX + JIANPU_NUMBER_WIDTH + 2,
+      x2: digitX + numberWidth + 2,
       y2: underlineY + i * 3,
       width: 1.2,
     })
@@ -467,7 +476,7 @@ const jianpuDurationMarks = (
   if (dot) {
     texts.push({
       text: "·",
-      x: noteX + JIANPU_NUMBER_WIDTH + JIANPU_FONT_SIZE * 0.3,
+      x: digitX + numberWidth + JIANPU_FONT_SIZE * 0.3,
       y: baseline,
       anchor: "middle",
     })
@@ -491,6 +500,11 @@ const addJianpuChord = (
   const isRest = chordNotes.some((n) => n.noteNumber < 0)
   const ordered = [...chordNotes].sort((a, b) => b.noteNumber - a.noteNumber)
   const dy = JIANPU_FONT_SIZE * 0.95
+  // the accidental is its own smaller glyph before the digit; underlines and
+  // octave dots attach to the DIGIT, not to the accidental
+  const accidentalGlyph = (acc: string) =>
+    acc === "#" ? "♯" : acc === "b" ? "♭" : ""
+  const accidentalWidth = JIANPU_FONT_SIZE * 0.55
 
   ordered.forEach((note, i) => {
     const noteBaseline = baseline - (ordered.length - 1 - i) * dy
@@ -499,16 +513,27 @@ const addJianpuChord = (
       return
     }
     const deg = jianpuDegreeOf(note.noteNumber, keyInfo)
+    const acc = accidentalGlyph(deg.accidental)
+    const digitX = noteX + (acc ? accidentalWidth : 0)
+    if (acc) {
+      texts.push({
+        text: acc,
+        x: noteX,
+        y: noteBaseline,
+        anchor: "start",
+        size: JIANPU_FONT_SIZE * 0.8,
+      })
+    }
     texts.push({
-      text: `${deg.accidental}${deg.degree}`,
-      x: noteX,
+      text: `${deg.degree}`,
+      x: digitX,
       y: noteBaseline,
       anchor: "start",
     })
     if (deg.octave > 0) {
       for (let k = 0; k < deg.octave; k++) {
         dots.push({
-          x: noteX + JIANPU_NUMBER_WIDTH / 2,
+          x: digitX + JIANPU_NUMBER_WIDTH / 2,
           y: noteBaseline - JIANPU_FONT_SIZE - 3 - k * 3.5,
           r: 1.6,
         })
@@ -516,12 +541,16 @@ const addJianpuChord = (
     }
   })
 
+  const hasAccidental = chordNotes.some(
+    (n) => jianpuDegreeOf(n.noteNumber, keyInfo).accidental !== "",
+  )
   const marks = jianpuDurationMarks(
     texts,
     lines,
     beats,
     noteTick,
-    noteX,
+    isRest || !hasAccidental ? noteX : noteX + JIANPU_FONT_SIZE * 0.55,
+    JIANPU_NUMBER_WIDTH,
     chordTpb,
     baseline,
     xOf,
@@ -533,7 +562,10 @@ const addJianpuChord = (
       if (deg.octave < 0) {
         for (let k = 0; k < -deg.octave; k++) {
           dots.push({
-            x: noteX + JIANPU_NUMBER_WIDTH / 2,
+            x:
+              noteX +
+              (deg.accidental !== "" ? JIANPU_FONT_SIZE * 0.55 : 0) +
+              JIANPU_NUMBER_WIDTH / 2,
             y: baseline + 7 + marks.underlines * 3 + 5 + k * 3.5,
             r: 1.6,
           })
@@ -557,10 +589,11 @@ const layoutJianpuLane = (lanes: NotationLanes, params: LaneParams) => {
   const tpb = (timebase * 4) / denominator
   const widthPx = numerator * pxPerBeat
   const xOf = (tick: number) => ((tick - measureStart) / tpb) * pxPerBeat
-  const baseline = JIANPU_BASELINE + yShift
+  const baseline = JIANPU_BASELINE + yShift + params.jianpuShift
   const measureEndTick = measureStart + tpb * numerator
 
-  let prevEndTick = measureStart
+  // a note sustained from the previous measure occupies the measure head
+  let prevEndTick = Math.max(measureStart, params.carriedUntil)
   for (const chord of groupChords(notes)) {
     const gap = chord.tick - prevEndTick
     if (gap >= tpb * 0.2) {
@@ -661,12 +694,18 @@ export const layoutNotationMeasure = (params: {
   clef?: Clef
   /** vertical shift in px (ledger room above the staff) */
   yShift?: number
+  /** extra downward shift of the jianpu lane (ledger room below) */
+  jianpuShift?: number
+  /** a note from the previous measure still sounds until this tick */
+  carriedUntil?: number
 }): NotationMeasureLayout => {
   const keyInfo = keyInfoOf(params.key, params.scale as never)
   const laneParams: LaneParams = {
     ...params,
     clef: params.clef ?? "treble",
     yShift: params.yShift ?? 0,
+    jianpuShift: params.jianpuShift ?? 0,
+    carriedUntil: params.carriedUntil ?? 0,
     keyInfo,
   }
   const staff: NotationLanes = { glyphs: [], texts: [], lines: [], dots: [] }

@@ -1,3 +1,4 @@
+import { KeySignature as KeySignatureEntity } from "../../../../../entities/scale/KeySignature"
 import type { Scale } from "../../../../../entities/scale/Scale"
 
 // Key / spelling utilities for the notation strip.
@@ -19,23 +20,12 @@ export interface KeyInfo {
   readonly minor: boolean
 }
 
-const MINOR_SCALES: ReadonlySet<string> = new Set([
-  "minor",
-  "harmonicMinor",
-  "melodicMinor",
-  "aeolian",
-  "minorPentatonic",
-])
-
-// chromatic key -> circle-of-fifths count for the (default-spelled) major key
-const MAJOR_FIFTHS = [0, 7, 2, -3, 4, -1, 6, 1, -4, 3, -2, 5]
-
 export const keyInfoOf = (key: number, scale: Scale | null): KeyInfo => {
-  const minor = scale !== null && MINOR_SCALES.has(scale)
+  const minor = scale !== null && KeySignatureEntity.isMinorScaleName(scale)
   const pc = ((key % 12) + 12) % 12
   const majorPc = minor ? (pc + 3) % 12 : pc
   return {
-    fifths: MAJOR_FIFTHS[majorPc],
+    fifths: KeySignatureEntity.keyToFifths(majorPc),
     jianpuTonicPc: majorPc,
     staffRootPc: pc,
     minor,

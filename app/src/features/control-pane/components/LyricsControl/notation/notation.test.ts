@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { KeySignature } from "../../../../../entities/scale/KeySignature"
 import {
   jianpuDegreeOf,
   keyInfoOf,
@@ -215,5 +216,103 @@ describe("clef choice and strip growth", () => {
     expect(ledgerExtents(60, 84, "treble")).toEqual({ above: 2, below: 1 })
     // C3-G3 sits inside the bass staff
     expect(ledgerExtents(48, 55, "bass")).toEqual({ above: 0, below: 0 })
+  })
+})
+
+describe("key signature round trip", () => {
+  it("converts between fifths and chromatic keys", () => {
+    expect(KeySignature.keyToFifths(7)).toBe(1) // G major: one sharp
+    expect(KeySignature.fifthsToKey(1)).toBe(7)
+    expect(KeySignature.fifthsToKey(-1)).toBe(5) // F major
+    expect(KeySignature.fifthsToKey(-3)).toBe(3) // Eb major
+    // the chromatic-pc representation covers every key within sf -4..+7
+    // (Db/Gb/Cb collapse into C#/F#/B, matching the dialog's sharp-side names)
+    for (let sf = -4; sf <= 7; sf++) {
+      expect(KeySignature.keyToFifths(KeySignature.fifthsToKey(sf))).toBe(sf)
+    }
+  })
+
+  it("builds minor keys from the MIDI minor flag", () => {
+    // sf 0 + minor flag = A minor
+    expect(KeySignature.fromMidiValues(0, 1)).toEqual({
+      key: 9,
+      scale: "minor",
+    })
+    expect(KeySignature.fromMidiValues(0, 0)).toEqual({
+      key: 0,
+      scale: "major",
+    })
+  })
+})
+
+describe("jianpu accidental rendering", () => {
+  const base = {
+    measureStart: 0,
+    numerator: 4,
+    denominator: 4,
+    timebase: 480,
+    key: 0,
+    scale: MAJOR,
+    pxPerBeat: 96,
+    isFirst: false,
+  }
+
+  it("renders the accidental as its own glyph before the digit", () => {
+    const layout = layoutNotationMeasure({
+      ...base,
+      notes: [{ tick: 0, duration: 480, noteNumber: 66 }], // F#4 = #4
+    })
+    const acc = layout.jianpu.texts.find((t) => t.text === "♯")
+    const digit = layout.jianpu.texts.find((t) => t.text === "4")
+    expect(acc).toBeDefined()
+    expect(digit).toBeDefined()
+    expect(digit!.x).toBeGreaterThan(acc!.x)
+  })
+
+  it("draws the underline under the digit, not the accidental", () => {
+    const layout = layoutNotationMeasure({
+      ...base,
+      notes: [{ tick: 0, duration: 240, noteNumber: 66 }], // #4, 16th
+    })
+    const digit = layout.jianpu.texts.find((t) => t.text === "4")
+    const underline = layout.jianpu.lines[0]
+    expect(underline.x1).toBeGreaterThanOrEqual(digit!.x - 2)
+  })
+})
+
+describe("sustained notes across barlines", () => {
+  const base = {
+    measureStart: 1920, // second measure
+    numerator: 4,
+    denominator: 4,
+    timebase: 480,
+    key: 0,
+    scale: MAJOR,
+    pxPerBeat: 96,
+    isFirst: false,
+  }
+
+  it("does not fill a rest where a previous note still sounds", () => {
+    const layout = layoutNotationMeasure({
+      ...base,
+      notes: [{ tick: 2400, duration: 480, noteNumber: 60 }], // beat 2 of the measure
+      carriedUntil: 2400, // previous note sounds until beat 2
+    })
+    // no leading rest: the first jianpu text is the note itself
+    expect(layout.jianpu.texts[0].text).toBe("1")
+    // the trailing half of the measure still gets its rest
+    expect(layout.jianpu.texts.some((t) => t.text === "0")).toBe(true)
+  })
+
+  it("starts rests after the sustained part", () => {
+    const layout = layoutNotationMeasure({
+      ...base,
+      notes: [{ tick: 2880, duration: 480, noteNumber: 60 }], // beat 3
+      carriedUntil: 2400, // previous note sounds until beat 2
+    })
+    const rest = layout.jianpu.texts.find((t) => t.text === "0")
+    expect(rest).toBeDefined()
+    // rest starts at the carried tick (beat 2), not at the measure start
+    expect(rest!.x).toBeCloseTo(96, 0)
   })
 })

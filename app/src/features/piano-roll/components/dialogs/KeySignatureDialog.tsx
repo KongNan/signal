@@ -10,6 +10,7 @@ import {
 } from "@signal-app/ui"
 import React, { type FC } from "react"
 import { ScaleName } from "../../../../components/KeySignatureDialog/ScaleName"
+import type { KeySignature } from "../../../../entities/scale/KeySignature"
 import { Scale } from "../../../../entities/scale/Scale"
 import { Localized } from "../../../../localize/useLocalization"
 import { usePianoRoll } from "../../hooks/usePianoRoll"
@@ -17,6 +18,11 @@ import { usePianoRoll } from "../../hooks/usePianoRoll"
 export interface KeySignatureDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * When set, key changes are delegated to this callback instead of the
+   * global piano-roll state (the caller is responsible for applying them).
+   */
+  onChange?: (keySignature: KeySignature) => void
 }
 
 const keyNames = Array.from({ length: 12 }, (_, i) => {
@@ -50,9 +56,12 @@ const Column = styled.div`
 const _KeySignatureDialog: FC<KeySignatureDialogProps> = ({
   open,
   onOpenChange,
+  onChange,
 }) => {
   const { keySignature, setKeySignature } = usePianoRoll()
   const onClose = () => onOpenChange(false)
+  const apply = (next: KeySignature) =>
+    onChange !== undefined ? onChange(next) : setKeySignature(next)
 
   return (
     <Dialog
@@ -74,7 +83,7 @@ const _KeySignatureDialog: FC<KeySignatureDialogProps> = ({
               value={keySignature?.key}
               onChange={(e) => {
                 const key = parseInt(e.target.value, 10)
-                setKeySignature({
+                apply({
                   scale: keySignature?.scale ?? "major",
                   key,
                 })
@@ -95,7 +104,7 @@ const _KeySignatureDialog: FC<KeySignatureDialogProps> = ({
               value={keySignature?.scale}
               onChange={(e) => {
                 const scale = e.target.value as Scale
-                setKeySignature({
+                apply({
                   key: keySignature?.key ?? 0,
                   scale: scale,
                 })

@@ -1,5 +1,11 @@
 import { type FC, useEffect, useMemo, useRef, useState } from "react"
+import {
+  isKeySignatureEvent,
+  type MidiKeySignatureEvent,
+} from "../../../../../actions/keys"
+import { KeySignature as KeySignatureEntity } from "../../../../../entities/scale/KeySignature"
 import { useSong } from "../../../../../hooks/useSong"
+import { useSyncTrackQueryInternal } from "../../../../../hooks/useSyncTrackQuery"
 import { useAllNoteEvents } from "../../../../piano-roll/hooks/useEventView"
 import { usePianoRoll } from "../../../../piano-roll/hooks/usePianoRoll"
 import { ensureBravuraFont } from "./bravura"
@@ -74,7 +80,7 @@ const LaneItems: FC<{
         key={`t${i}`}
         x={t.x}
         y={t.y}
-        fontSize={textFontSize}
+        fontSize={t.size ?? textFontSize}
         style={{ fontFamily: "serif" }}
         fill="var(--color-text)"
         textAnchor={t.anchor}
@@ -179,6 +185,54 @@ const lowerBound = (
   return lo
 }
 
+/** keySignature meta events of the conductor track (tick, sf, mi) */
+export const useConductorKeyEvents = () => {
+  const { conductorTrack } = useSong()
+  return useSyncTrackQueryInternal(
+    conductorTrack,
+    (t) =>
+      t
+        .getEvents()
+        .filter(isKeySignatureEvent)
+        .map((e: MidiKeySignatureEvent) => ({
+          tick: e.tick,
+          sf: e.key,
+          mi: e.scale,
+        })),
+    isKeySignatureEvent,
+  )
+}
+
+type ConductorKeyEvent = { tick: number; sf: number; mi: number }
+
+/**
+ * The key in effect at a tick: the user's piano-roll choice wins, otherwise
+ * the conductor track's keySignature events (imported files), otherwise C.
+ */
+export const effectiveKeyAt = (
+  conductorKeyEvents: readonly ConductorKeyEvent[] | undefined,
+  tick: number,
+  atomKeySignature: KeySignatureEntity | null | undefined,
+): KeySignatureEntity => {
+  if (atomKeySignature !== null && atomKeySignature !== undefined) {
+    return atomKeySignature
+  }
+  let event = null
+  if (conductorKeyEvents !== undefined) {
+    for (const e of conductorKeyEvents) {
+      if (e.tick <= tick) {
+        event = e
+      } else {
+        break
+      }
+    }
+  }
+  if (event === null) {
+    return { key: 0, scale: "major" }
+  }
+  return KeySignatureEntity.fromMidiValues(event.sf, event.mi)
+}
+
 export const NotationStrip: FC<NotationStripProps> = ({
   tickRange,
   transform,
@@ -188,6 +242,7 @@ export const NotationStrip: FC<NotationStripProps> = ({
   const { measures, timebase } = useSong()
   const allNotes = useAllNoteEvents()
   const { keySignature } = usePianoRoll()
+  const conductorKeyEvents = useConductorKeyEvents()
   const pxPerTick = transform.getX(timebase) / timebase
 
   const [fontReady, setFontReady] = useState(false)
@@ -231,11 +286,18 @@ export const NotationStrip: FC<NotationStripProps> = ({
     if (sortedNotes.length === 0) {
       return { above: 0, below: 0 }
     }
-    return ledgerExtents(
+    const raw = ledgerExtents(
       sortedNotes[0].noteNumber,
       sortedNotes[sortedNotes.length - 1].noteNumber,
       clef,
     )
+    // extreme registers stop growing and clip (the clef choice keeps this
+    // rare); a cap also bounds the strip height for the lyrics row
+    const MAX_LEDGER_LINES = 4
+    return {
+      above: Math.min(raw.above, MAX_LEDGER_LINES),
+      below: Math.min(raw.below, MAX_LEDGER_LINES),
+    }
   }, [sortedNotes, clef])
 
   const yShift = extents.above * STAFF_SPACE
@@ -328,8 +390,19 @@ export const NotationStrip: FC<NotationStripProps> = ({
     return result
   }, [measures, timebase, tickRange[0], tickRange[1]])
 
-  const layouts = useMemo(
-    () =>
+  const layouts = useMemo(() => {
+    const jianpuShift = extents.below * STAFF_SPACE
+    // a note sustained from before the first rendered measure occupies its head
+    let carry = 0
+    const firstStart = visibleMeasures[0]?.startTick ?? 0
+    const firstLo = lowerBound(sortedNotes, firstStart)
+    for (let i = 0; i < firstLo; i++) {
+      const end = sortedNotes[i].tick + sortedNotes[i].duration
+      if (end > firstStart) {
+        carry = Math.max(carry, end)
+      }
+    }
+    return (
       visibleMeasures
         // beyond the last note the strip stays empty, like the piano roll
         .filter((m) => m.startTick < noteEnd)
@@ -338,33 +411,47 @@ export const NotationStrip: FC<NotationStripProps> = ({
           const measureEnd = m.startTick + tpb * m.numerator
           const lo = lowerBound(sortedNotes, m.startTick)
           const hi = lowerBound(sortedNotes, measureEnd)
-          return layoutNotationMeasure({
+          const slice = sortedNotes.slice(lo, hi)
+          const effectiveKey = effectiveKeyAt(
+            conductorKeyEvents,
+            m.startTick,
+            keySignature,
+          )
+          const layout = layoutNotationMeasure({
             measureStart: m.startTick,
             numerator: m.numerator,
             denominator: m.denominator,
             timebase,
-            notes: sortedNotes.slice(lo, hi),
-            key: keySignature?.key ?? 0,
-            scale: keySignature?.scale ?? null,
+            notes: slice,
+            key: effectiveKey.key,
+            scale: effectiveKey.scale,
             pxPerBeat: renderedPxPerTick * tpb,
             isFirst: m.startTick <= 0,
             clef,
             yShift,
+            jianpuShift,
+            carriedUntil: carry,
           })
-        }),
+          for (const n of slice) {
+            carry = Math.max(carry, n.tick + n.duration)
+          }
+          return layout
+        })
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      visibleMeasures,
-      sortedNotes,
-      timebase,
-      renderedPxPerTick,
-      fontReady,
-      keySignature,
-      clef,
-      yShift,
-      noteEnd,
-    ],
-  )
+  }, [
+    visibleMeasures,
+    sortedNotes,
+    timebase,
+    renderedPxPerTick,
+    fontReady,
+    keySignature,
+    conductorKeyEvents,
+    clef,
+    yShift,
+    extents,
+    noteEnd,
+  ])
 
   const scaleX = pxPerTick / renderedPxPerTick
 
