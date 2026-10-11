@@ -1,12 +1,17 @@
 import { ValueEventType } from "@signal-app/control-editor"
 import { MIDIControlEvents } from "midifile-ts"
 
-export type ControlMode = { type: "velocity" } | ValueEventType
+export type ControlMode =
+  | { type: "velocity" }
+  | { type: "lyrics" }
+  | ValueEventType
 
 export const controlModeKey = (controlMode: ControlMode) => {
   switch (controlMode.type) {
     case "velocity":
       return "velocity"
+    case "lyrics":
+      return "lyrics"
     case "pitchBend":
       return "pitchBend"
     case "controller":
@@ -17,11 +22,13 @@ export const controlModeKey = (controlMode: ControlMode) => {
 export const isEqualControlMode = (a: ControlMode, b: ControlMode) => {
   switch (a.type) {
     case "velocity":
+    case "lyrics":
     case "pitchBend":
       return a.type === b.type
     case "controller":
       switch (b.type) {
         case "velocity":
+        case "lyrics":
         case "pitchBend":
           return false
         case "controller":
@@ -33,6 +40,9 @@ export const isEqualControlMode = (a: ControlMode, b: ControlMode) => {
 export const defaultControlModes: ControlMode[] = [
   {
     type: "velocity",
+  },
+  {
+    type: "lyrics",
   },
   {
     type: "pitchBend",

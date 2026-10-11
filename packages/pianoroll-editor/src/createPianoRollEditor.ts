@@ -39,6 +39,40 @@ export const createPianoRollEditor = (song: Song, trackId: TrackId) => {
     (...args: A) =>
       track.transaction(() => fn(...args)(mapper))
 
+  // keep the lyrics event at the note tick paired with the note
+
+  const dragNoteWithLyrics = (
+    position: { tick: number; noteNumber: number },
+    noteId: number,
+    draggablePosition: "left" | "right" | "center",
+  ) =>
+    track.transaction(() => {
+      const note = mapper.getNoteById(noteId)
+      const result = dragNote(position, noteId, draggablePosition)(mapper)
+      if (note !== undefined && result !== null && result.tick !== note.tick) {
+        mapper.moveLyricsTick(note.tick, result.tick)
+      }
+      return result
+    })
+
+  const removeNoteWithLyrics = (id: number) =>
+    track.transaction(() => {
+      const note = mapper.getNoteById(id)
+      const result = mapper.removeNote(id)
+      if (note !== undefined) {
+        mapper.removeLyricsAtTick(note.tick)
+      }
+      return result
+    })
+
+  const removeNotesWithLyrics = (noteIds: readonly number[]) =>
+    track.transaction(() => {
+      const notes = getNotesByIds(noteIds)(mapper)
+      const result = removeNotes(noteIds)(mapper)
+      notes.forEach((note) => mapper.removeLyricsAtTick(note.tick))
+      return result
+    })
+
   return {
     transaction: track.transaction,
 
@@ -55,16 +89,16 @@ export const createPianoRollEditor = (song: Song, trackId: TrackId) => {
     // mutations
 
     addNote: mapper.addNote,
-    removeNote: mapper.removeNote,
+    removeNote: removeNoteWithLyrics,
     updateNote: mapper.updateNote,
     updateNotes: (notes: readonly NoteEvent[]) =>
       track.transaction(() => updateNotes(mapper)(notes)),
     addClipboardNotes: bindMutation(addClipboardNotes),
     cloneNotes: bindMutation(cloneNotes),
-    dragNote: bindMutation(dragNote),
+    dragNote: dragNoteWithLyrics,
     duplicateNotes: bindMutation(duplicateNotes),
     quantizeNotes: bindMutation(quantizeNotes),
-    removeNotes: bindMutation(removeNotes),
+    removeNotes: removeNotesWithLyrics,
     transposeNotes: bindMutation(transposeNotes),
     batchUpdateNotesVelocity: track.batchUpdateNotesVelocity,
   }

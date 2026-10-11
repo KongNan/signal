@@ -7,6 +7,8 @@ export const ControlName: FC<{ mode: ControlMode }> = ({ mode }) => {
   switch (mode.type) {
     case "velocity":
       return <Localized name="velocity" />
+    case "lyrics":
+      return <Localized name="lyrics" />
     case "pitchBend":
       return <Localized name="pitch-bend" />
     case "controller":
