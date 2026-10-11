@@ -6,14 +6,16 @@ import { Beats } from "../../../../components/GLNodes/Beats"
 import { Cursor } from "../../../../components/GLNodes/Cursor"
 import { matrixFromTranslation } from "../../../../helpers/matrix"
 import { useBeats } from "../../../../hooks/useBeats"
+import { useSong } from "../../../../hooks/useSong"
 import { useTickScroll } from "../../../../hooks/useTickScroll"
 import {
   useLyricsEvents,
   useNoteEvents,
 } from "../../../piano-roll/hooks/useEventView"
 import { useNoteCoordTransform } from "../../../piano-roll/hooks/useNoteCoordTransform"
-import { GraphAxis } from "../LineGraph/GraphAxis"
+import { usePianoRoll } from "../../../piano-roll/hooks/usePianoRoll"
 import LyricsItem from "./LyricsItem"
+import { NotationStrip, notationHeaderLabel } from "./notation/NotationStrip"
 
 export interface LyricsControlProps {
   width: number
@@ -28,6 +30,23 @@ const Parent = styled.div`
   left: 0;
 `
 
+const Header = styled.div`
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+  padding-right: 0.4rem;
+  text-align: right;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+`
+
+const Content = styled.div`
+  position: relative;
+`
+
 const LyricsControl: FC<LyricsControlProps> = ({
   width,
   height,
@@ -36,8 +55,10 @@ const LyricsControl: FC<LyricsControlProps> = ({
   const { transform } = useNoteCoordTransform()
   const notes = useNoteEvents()
   const lyricsEvents = useLyricsEvents()
-  const { cursorX, scrollLeft } = useTickScroll()
+  const { cursorX, scrollLeft, tickRange } = useTickScroll()
   const beats = useBeats()
+  const { keySignature } = usePianoRoll()
+  const { measures } = useSong()
   const { createLyrics, updateLyrics, deleteLyrics } = useLyricsActions()
 
   const scrollXMatrix = useMemo(
@@ -57,8 +78,7 @@ const LyricsControl: FC<LyricsControlProps> = ({
   )
 
   const lyricsItems = useMemo(() => {
-    const itemX = (tick: number) =>
-      axisWidth + transform.getX(tick) - scrollLeft
+    const itemX = (tick: number) => transform.getX(tick) - scrollLeft
     const itemWidth = (tick: number, duration: number) =>
       transform.getX(tick + duration) - transform.getX(tick)
 
@@ -93,21 +113,39 @@ const LyricsControl: FC<LyricsControlProps> = ({
     lyricsEvents,
     transform,
     scrollLeft,
-    axisWidth,
     createLyrics,
     updateLyricsText,
   ])
 
+  const firstTs = measures[0]
+  const headerLabel = notationHeaderLabel(
+    keySignature?.key ?? 0,
+    keySignature?.scale ?? null,
+    firstTs?.numerator,
+    firstTs?.denominator,
+  )
+  const [keyLabel, meterLabel] = headerLabel.split(" ")
+
   return (
     <Parent>
-      <GraphAxis width={axisWidth} values={[]} onClick={() => {}} />
-      <GLCanvas width={width} height={height}>
-        <Transform matrix={scrollXMatrix}>
-          <Beats height={height} beats={beats} zIndex={2} />
-          <Cursor x={cursorX} height={height} zIndex={4} />
-        </Transform>
-      </GLCanvas>
-      {lyricsItems}
+      <Header style={{ width: axisWidth, height }}>
+        <div>{keyLabel}</div>
+        <div>{meterLabel}</div>
+      </Header>
+      <Content style={{ width, height }}>
+        <GLCanvas width={width} height={height}>
+          <Transform matrix={scrollXMatrix}>
+            <Beats height={height} beats={beats} zIndex={2} />
+            <Cursor x={cursorX} height={height} zIndex={4} />
+          </Transform>
+        </GLCanvas>
+        <NotationStrip
+          tickRange={tickRange}
+          transform={transform}
+          scrollLeft={scrollLeft}
+        />
+        {lyricsItems}
+      </Content>
     </Parent>
   )
 }

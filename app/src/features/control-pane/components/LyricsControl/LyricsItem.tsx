@@ -1,5 +1,6 @@
 import styled from "@emotion/styled"
 import { type FC, memo, useEffect, useState } from "react"
+import { STRIP_HEIGHT } from "./notation/layout"
 
 interface LyricsItemDisplayProps {
   x: number
@@ -15,8 +16,9 @@ const Parent = styled.div<LyricsItemDisplayProps>`
   margin: 0;
   position: absolute;
   left: ${(props) => props.x}px;
-  top: 0;
-  bottom: 0;
+  /* below the notation strip */
+  top: ${STRIP_HEIGHT + 4}px;
+  bottom: 4px;
   font-size: 1rem;
   display: flex;
   align-items: center;
