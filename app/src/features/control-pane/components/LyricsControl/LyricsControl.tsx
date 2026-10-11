@@ -1,6 +1,6 @@
 import styled from "@emotion/styled"
 import { GLCanvas, Transform } from "@ryohey/webgl-react"
-import { type FC, memo, useCallback, useMemo } from "react"
+import { type FC, memo, useCallback, useMemo, useState } from "react"
 import { useLyricsActions } from "../../../../actions/lyrics"
 import { Beats } from "../../../../components/GLNodes/Beats"
 import { Cursor } from "../../../../components/GLNodes/Cursor"
@@ -15,6 +15,7 @@ import {
 import { useNoteCoordTransform } from "../../../piano-roll/hooks/useNoteCoordTransform"
 import { usePianoRoll } from "../../../piano-roll/hooks/usePianoRoll"
 import LyricsItem from "./LyricsItem"
+import { STRIP_HEIGHT } from "./notation/layout"
 import { NotationStrip, notationHeaderLabel } from "./notation/NotationStrip"
 
 export interface LyricsControlProps {
@@ -61,6 +62,10 @@ const LyricsControl: FC<LyricsControlProps> = ({
   const { measures } = useSong()
   const { createLyrics, updateLyrics, deleteLyrics } = useLyricsActions()
 
+  // the notation strip reports its height (it grows for ledger lines)
+  const [stripHeight, setStripHeight] = useState(STRIP_HEIGHT)
+  const onStripHeightChange = useCallback((h: number) => setStripHeight(h), [])
+
   const scrollXMatrix = useMemo(
     () => matrixFromTranslation(-scrollLeft, 0),
     [scrollLeft],
@@ -90,6 +95,7 @@ const LyricsControl: FC<LyricsControlProps> = ({
           lyrics={e.text}
           onChange={updateLyricsText(e.id)}
           x={itemX(e.tick)}
+          top={stripHeight + 4}
           width={note ? itemWidth(note.tick, note.duration) : 50}
         />
       )
@@ -103,6 +109,7 @@ const LyricsControl: FC<LyricsControlProps> = ({
           lyrics=""
           onChange={(text) => createLyrics(text, n.tick)}
           x={itemX(n.tick)}
+          top={stripHeight + 4}
           width={itemWidth(n.tick, n.duration)}
         />
       ))
@@ -113,6 +120,7 @@ const LyricsControl: FC<LyricsControlProps> = ({
     lyricsEvents,
     transform,
     scrollLeft,
+    stripHeight,
     createLyrics,
     updateLyricsText,
   ])
@@ -143,6 +151,7 @@ const LyricsControl: FC<LyricsControlProps> = ({
           tickRange={tickRange}
           transform={transform}
           scrollLeft={scrollLeft}
+          onHeightChange={onStripHeightChange}
         />
         {lyricsItems}
       </Content>

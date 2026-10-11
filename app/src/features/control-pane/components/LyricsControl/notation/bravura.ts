@@ -3,6 +3,7 @@
 
 export const SMUFL = {
   gClef: 0xe050,
+  fClef: 0xe062,
   timeSig0: 0xe080, // ..0xe089
   noteheadWhole: 0xe0a2,
   noteheadHalf: 0xe0a3,

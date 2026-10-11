@@ -1,16 +1,19 @@
 import { type FC, useEffect, useMemo, useRef, useState } from "react"
 import { useSong } from "../../../../../hooks/useSong"
-import { useNoteEvents } from "../../../../piano-roll/hooks/useEventView"
+import { useAllNoteEvents } from "../../../../piano-roll/hooks/useEventView"
 import { usePianoRoll } from "../../../../piano-roll/hooks/usePianoRoll"
 import { ensureBravuraFont } from "./bravura"
 import { keyInfoOf } from "./keys"
 import {
+  chooseClef,
   JIANPU_FONT_SIZE,
   jianpuKeyLabel,
   layoutNotationMeasure,
+  ledgerExtents,
   type NotationLanes,
   type NotationMeasureLayout,
   STAFF_FONT_SIZE,
+  STAFF_SPACE,
   STRIP_HEIGHT,
 } from "./layout"
 
@@ -20,6 +23,11 @@ import {
 // at a stable horizontal scale and stretched via CSS while the user zooms;
 // a debounced re-layout brings note spacing back in line. Glyph sizes are
 // fixed screen pixels at every zoom level.
+//
+// Notes come from the WHOLE track (not the windowed view): measures at the
+// edges of the visible range must lay out completely, or phantom rests
+// would appear and shift while scrolling. Measures beyond the end of the
+// song are not rendered — an empty region stays empty, like the piano roll.
 
 const RENDER_RATIO = 1.12 // re-layout when the zoom drifts past this
 const RELAYOUT_DEBOUNCE_MS = 250
@@ -91,9 +99,15 @@ interface MeasureChunkProps {
   /** screen-space x of the measure's musical start (barline-aligned) */
   left: number
   scaleX: number
+  height: number
 }
 
-const MeasureChunk: FC<MeasureChunkProps> = ({ layout, left, scaleX }) => {
+const MeasureChunk: FC<MeasureChunkProps> = ({
+  layout,
+  left,
+  scaleX,
+  height,
+}) => {
   const totalWidth = layout.leadPx + layout.widthPx
   return (
     <div
@@ -102,14 +116,14 @@ const MeasureChunk: FC<MeasureChunkProps> = ({ layout, left, scaleX }) => {
         top: 0,
         left: left - layout.leadPx * scaleX,
         width: totalWidth * scaleX,
-        height: STRIP_HEIGHT,
+        height: "100%",
         overflow: "visible",
         pointerEvents: "none",
       }}
     >
       <svg
         width={totalWidth}
-        height={STRIP_HEIGHT}
+        height={height}
         style={{
           transform: `scaleX(${scaleX})`,
           transformOrigin: "0 0",
@@ -140,18 +154,39 @@ export interface NotationStripProps {
   transform: { getX(tick: number): number }
   /** piano roll scroll position in px */
   scrollLeft: number
+  /** reports the strip height so the parent can place lyrics below it */
+  onHeightChange?: (height: number) => void
 }
 
 const clampPxPerBeat = (v: number) =>
   Math.min(Math.max(v, MIN_RENDER_PX_PER_BEAT), MAX_RENDER_PX_PER_BEAT)
 
+/** index of the first note with tick >= tick (notes sorted by tick) */
+const lowerBound = (
+  notes: readonly { tick: number }[],
+  tick: number,
+): number => {
+  let lo = 0
+  let hi = notes.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (notes[mid].tick < tick) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+  return lo
+}
+
 export const NotationStrip: FC<NotationStripProps> = ({
   tickRange,
   transform,
   scrollLeft,
+  onHeightChange,
 }) => {
-  const { measures, timebase, endOfSong } = useSong()
-  const notes = useNoteEvents()
+  const { measures, timebase } = useSong()
+  const allNotes = useAllNoteEvents()
   const { keySignature } = usePianoRoll()
   const pxPerTick = transform.getX(timebase) / timebase
 
@@ -167,6 +202,49 @@ export const NotationStrip: FC<NotationStripProps> = ({
       cancelled = true
     }
   }, [])
+
+  // notes sorted by tick, so each measure can slice its notes in O(log n)
+  const sortedNotes = useMemo(
+    () => [...allNotes].sort((a, b) => a.tick - b.tick),
+    [allNotes],
+  )
+
+  // the notation content ends with the last note — NOT song.endOfSong,
+  // which carries a large composing margin past the written music
+  const noteEnd = useMemo(() => {
+    const last = sortedNotes[sortedNotes.length - 1]
+    return last !== undefined ? last.tick + last.duration : 0
+  }, [sortedNotes])
+
+  // clef from the whole-track register; the strip grows for ledger lines
+  const clef = useMemo(() => {
+    if (sortedNotes.length === 0) {
+      return "treble" as const
+    }
+    return chooseClef(
+      sortedNotes[0].noteNumber,
+      sortedNotes[sortedNotes.length - 1].noteNumber,
+    )
+  }, [sortedNotes])
+
+  const extents = useMemo(() => {
+    if (sortedNotes.length === 0) {
+      return { above: 0, below: 0 }
+    }
+    return ledgerExtents(
+      sortedNotes[0].noteNumber,
+      sortedNotes[sortedNotes.length - 1].noteNumber,
+      clef,
+    )
+  }, [sortedNotes, clef])
+
+  const yShift = extents.above * STAFF_SPACE
+  const stripHeight =
+    STRIP_HEIGHT + (extents.above + extents.below) * STAFF_SPACE
+
+  useEffect(() => {
+    onHeightChange?.(stripHeight)
+  }, [stripHeight, onHeightChange])
 
   // the beat unit (ticks per beat) of the first visible measure — used for
   // the stable render scale and the pxPerBeat <-> pxPerTick conversion
@@ -247,38 +325,44 @@ export const NotationStrip: FC<NotationStripProps> = ({
       startTick += tpb * current.numerator
       guard += 1
     }
-    void endOfSong
     return result
   }, [measures, timebase, tickRange[0], tickRange[1]])
 
   const layouts = useMemo(
     () =>
-      visibleMeasures.map((m) => {
-        const tpb = (timebase * 4) / m.denominator
-        const measureEnd = m.startTick + tpb * m.numerator
-        const notesInMeasure = notes.filter(
-          (n) => n.tick >= m.startTick && n.tick < measureEnd,
-        )
-        return layoutNotationMeasure({
-          measureStart: m.startTick,
-          numerator: m.numerator,
-          denominator: m.denominator,
-          timebase,
-          notes: notesInMeasure,
-          key: keySignature?.key ?? 0,
-          scale: keySignature?.scale ?? null,
-          pxPerBeat: renderedPxPerTick * tpb,
-          isFirst: m.startTick <= 0,
-        })
-      }),
+      visibleMeasures
+        // beyond the last note the strip stays empty, like the piano roll
+        .filter((m) => m.startTick < noteEnd)
+        .map((m) => {
+          const tpb = (timebase * 4) / m.denominator
+          const measureEnd = m.startTick + tpb * m.numerator
+          const lo = lowerBound(sortedNotes, m.startTick)
+          const hi = lowerBound(sortedNotes, measureEnd)
+          return layoutNotationMeasure({
+            measureStart: m.startTick,
+            numerator: m.numerator,
+            denominator: m.denominator,
+            timebase,
+            notes: sortedNotes.slice(lo, hi),
+            key: keySignature?.key ?? 0,
+            scale: keySignature?.scale ?? null,
+            pxPerBeat: renderedPxPerTick * tpb,
+            isFirst: m.startTick <= 0,
+            clef,
+            yShift,
+          })
+        }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       visibleMeasures,
-      notes,
+      sortedNotes,
       timebase,
       renderedPxPerTick,
       fontReady,
       keySignature,
+      clef,
+      yShift,
+      noteEnd,
     ],
   )
 
@@ -291,7 +375,7 @@ export const NotationStrip: FC<NotationStripProps> = ({
         top: 0,
         left: 0,
         right: 0,
-        height: STRIP_HEIGHT,
+        height: stripHeight,
         overflow: "hidden",
         pointerEvents: "none",
       }}
@@ -302,6 +386,7 @@ export const NotationStrip: FC<NotationStripProps> = ({
           layout={layout}
           left={transform.getX(layout.startTick) - scrollLeft}
           scaleX={scaleX}
+          height={stripHeight}
         />
       ))}
     </div>

@@ -35,6 +35,10 @@ export function useNoteEvents() {
   return useAtomValue(noteEventsAtom)
 }
 
+export function useAllNoteEvents() {
+  return useAtomValue(allNoteEventsAtom)
+}
+
 export function useLyricsEvents() {
   return useAtomValue(lyricsEventsAtom)
 }
@@ -52,6 +56,7 @@ const programChangeEventsAtom = atom((get) =>
 const noteEventsAtom = atom((get) =>
   get(windowedEventsAtom).filter(isNoteEvent),
 )
+const allNoteEventsAtom = atom((get) => get(eventsAtom).filter(isNoteEvent))
 const lyricsEventsAtom = atom((get) =>
   get(windowedEventsAtom).filter(isLyricsEvent),
 )

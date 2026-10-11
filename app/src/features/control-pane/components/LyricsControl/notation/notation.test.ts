@@ -6,7 +6,7 @@ import {
   staffSpellOf,
   staffStepOf,
 } from "./keys"
-import { layoutNotationMeasure } from "./layout"
+import { chooseClef, layoutNotationMeasure, ledgerExtents } from "./layout"
 
 const MAJOR = "major" as const
 const MINOR = "minor" as const
@@ -170,5 +170,50 @@ describe("layoutNotationMeasure", () => {
     const layout = layoutNotationMeasure({ ...base, notes: [] })
     const barline = layout.staff.lines[layout.staff.lines.length - 1]
     expect(barline?.x1).toBe(4 * 96)
+  })
+
+  it("draws ledger lines for notes beyond the staff", () => {
+    const layout = layoutNotationMeasure({
+      ...base,
+      notes: [{ tick: 0, duration: 480, noteNumber: 48 }], // C3 in treble
+    })
+    // C3 is 4 diatonic steps below the bottom line -> 2 ledger lines
+    const staffBottom = 10 + 4 * 7
+    const ledgerLines = layout.staff.lines.filter(
+      (l) => l.y1 === l.y2 && l.y1 > staffBottom,
+    )
+    expect(ledgerLines.length).toBe(4) // C4 A3 F3 D3
+  })
+
+  it("shifts lanes down when ledger room is needed above", () => {
+    const note = { tick: 0, duration: 480, noteNumber: 72 } // C5
+    const unshifted = layoutNotationMeasure({ ...base, notes: [note] })
+    const shifted = layoutNotationMeasure({
+      ...base,
+      notes: [note],
+      yShift: 10.5,
+    })
+    // the first staff line and the jianpu numbers move down by yShift
+    expect(shifted.staff.lines[0].y1).toBe(unshifted.staff.lines[0].y1 + 10.5)
+    expect(shifted.jianpu.texts[0].y).toBe(unshifted.jianpu.texts[0].y + 10.5)
+  })
+})
+
+describe("clef choice and strip growth", () => {
+  it("chooses bass clef for low melodies", () => {
+    // C3-G3: 4 ledger lines in treble, none in bass
+    expect(chooseClef(48, 55)).toBe("bass")
+  })
+
+  it("chooses treble clef for mid/high melodies", () => {
+    expect(chooseClef(60, 72)).toBe("treble")
+    expect(chooseClef(64, 81)).toBe("treble")
+  })
+
+  it("computes ledger extents", () => {
+    // C4 one ledger below the treble staff; C6 two ledgers above the top
+    expect(ledgerExtents(60, 84, "treble")).toEqual({ above: 2, below: 1 })
+    // C3-G3 sits inside the bass staff
+    expect(ledgerExtents(48, 55, "bass")).toEqual({ above: 0, below: 0 })
   })
 })

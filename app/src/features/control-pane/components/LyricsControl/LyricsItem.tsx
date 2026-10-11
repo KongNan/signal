@@ -1,9 +1,9 @@
 import styled from "@emotion/styled"
 import { type FC, memo, useEffect, useState } from "react"
-import { STRIP_HEIGHT } from "./notation/layout"
 
 interface LyricsItemDisplayProps {
   x: number
+  top: number
   width: number
 }
 
@@ -16,8 +16,8 @@ const Parent = styled.div<LyricsItemDisplayProps>`
   margin: 0;
   position: absolute;
   left: ${(props) => props.x}px;
-  /* below the notation strip */
-  top: ${STRIP_HEIGHT + 4}px;
+  /* below the notation strip (the strip grows for ledger lines) */
+  top: ${(props) => props.top}px;
   bottom: 4px;
   font-size: 1rem;
   display: flex;
